@@ -1,0 +1,15 @@
+[project]
+name = "anonymizer"
+version = "0.1.0"
+description = "Add your description here"
+readme = "README.md"
+requires-python = ">=3.12"
+dependencies = [
+    "docxtpl>=0.20.1",
+]
+
+[dependency-groups]
+dev = [
+    "pydantic-settings>=2.11.0",
+    "pyperclip>=1.11.0",
+]
