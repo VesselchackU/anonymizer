@@ -1,23 +1,20 @@
-import tkinter as tk
-from tkinter import ttk, filedialog, messagebox
 import configparser
 import json
-import os
 import logging
-import threading
-import tempfile
+import os
 import shutil
+import tempfile
+import threading
+import tkinter as tk
 from pathlib import Path
-from typing import Dict, Optional, List, Tuple
+from tkinter import ttk, filedialog, messagebox
+from typing import Dict, List, Tuple
+
 import pyperclip
-from datetime import datetime
-from docxtpl import DocxTemplate
-
-
-try:
-    import textract
-except ImportError:
-    textract = None
+import textract
+from docx import Document
+from docx.table import Table
+from docx.text.paragraph import Paragraph
 
 
 class AnonymizerApp:
@@ -76,7 +73,8 @@ class AnonymizerApp:
             'coord_y': '100'
         }
         self.config['config'] = {
-            'load_dir': str(Path.cwd())
+            'load_dir': str(Path.cwd()),
+            'last_open_dir': str(Path.cwd())
         }
         with open(self.config_file, 'w', encoding='utf-8') as f:
             self.config.write(f)
@@ -303,17 +301,22 @@ class AnonymizerApp:
         items.sort(key=lambda x: (-len(x[0]), x[0]))
         return items
 
-    def anonymize_file(self):
-        load_dir = self.config.get('config', 'load_dir', fallback=str(Path.cwd()))
+    def load_filename(self) -> str:
+        load_dir = self.config.get('config', 'last_open_dir', fallback=str(Path.cwd()))
         filename = filedialog.askopenfilename(
             initialdir=load_dir,
             filetypes=[
-                ("Текстовые файлы", "*.txt"),
-                ("Word документы", "*.docx"),
-                ("Word документы (старые)", "*.doc"),
+                ("Поддерживаемые файлы", ["*.txt", "*.doc", "*.docx"]),
                 ("Все файлы", "*.*")
             ]
         )
+        self.config.set('config', 'last_open_dir', str(Path(filename).parent))
+        with open(self.config_file, 'w', encoding='utf-8') as f:
+            self.config.write(f)
+        return filename
+
+    def anonymize_file(self):
+        filename = self.load_filename()
 
         if not filename:
             return
@@ -371,39 +374,149 @@ class AnonymizerApp:
 
     def process_docx_file(self, file_path: Path, replacements: List[Tuple[str, str]],
                           anonymize: bool = True) -> str:
-        if DocxTemplate is None:
-            raise ValueError("Модуль docxtpl не установлен")
 
+        def apply_mapping_to_text(text: str, mapping: List[Tuple[str, str]]) -> str:
+            # Ожидается, что mapping уже отсортирован снаружи от длинных ключей к коротким
+            for src, dst in mapping:
+                if src:
+                    text = text.replace(src, dst)
+            return text
+
+        # ------- Режим правки документа (анонимизация) -------
+        def replace_in_paragraph(paragraph, mapping: List[Tuple[str, str]]):
+            old = paragraph.text
+            new = apply_mapping_to_text(old, mapping)
+            if new != old:
+                # очищаем runs и записываем одной порцией
+                for run in paragraph.runs:
+                    run.text = ""
+                if paragraph.runs:
+                    paragraph.runs[0].text = new
+                else:
+                    paragraph.add_run(new)
+
+        def replace_in_table(table, mapping: List[Tuple[str, str]]):
+            for row in table.rows:
+                for cell in row.cells:
+                    for p in cell.paragraphs:
+                        replace_in_paragraph(p, mapping)
+
+        # ------- Режим извлечения текста (деанонимизация) -------
+        def iter_block_items(container):
+            """
+            Идём по детям контейнера (документ, ячейка, header/footer),
+            сохраняя порядок абзацев и таблиц.
+            """
+            # У разных контейнеров разная "корневая" нода: body у документа/ячейки,
+            # а у header/footer — сам элемент.
+            root = getattr(container._element, "body", None)
+            root = root if root is not None else container._element
+
+            for child in root.iterchildren():
+                tag = child.tag
+                if tag.endswith("}p"):
+                    yield Paragraph(child, container)
+                elif tag.endswith("}tbl"):
+                    yield Table(child, container)
+
+        def collect_text_from_table(table, mapping: List[Tuple[str, str]]) -> str:
+            # Строки таблицы разделяем переводами строк, ячейки — табами
+            lines = []
+            for row in table.rows:
+                cells_text = []
+                for cell in row.cells:
+                    cell_pars = [apply_mapping_to_text(p.text, mapping) for p in
+                                 cell.paragraphs]
+                    cells_text.append("\n".join(cell_pars).strip())
+                lines.append("\t".join(cells_text))
+            return "\n".join(lines)
+
+        def collect_text_with_replacements(doc_obj,
+                                           mapping: List[Tuple[str, str]]) -> str:
+            chunks = []
+
+            # Основное тело документа
+            for block in iter_block_items(doc_obj):
+                if isinstance(block, Paragraph):
+                    chunks.append(apply_mapping_to_text(block.text, mapping))
+                elif isinstance(block, Table):
+                    chunks.append(collect_text_from_table(block, mapping))
+
+            # Колонтитулы всех секций
+            for section in doc.sections:
+                # Header
+                header_chunks = []
+                for block in iter_block_items(section.header):
+                    if isinstance(block, Paragraph):
+                        header_chunks.append(apply_mapping_to_text(block.text, mapping))
+                    elif isinstance(block, Table):
+                        header_chunks.append(collect_text_from_table(block, mapping))
+                if header_chunks:
+                    chunks.append("\n".join(header_chunks))
+                # Footer
+                footer_chunks = []
+                for block in iter_block_items(section.footer):
+                    if isinstance(block, Paragraph):
+                        footer_chunks.append(apply_mapping_to_text(block.text, mapping))
+                    elif isinstance(block, Table):
+                        footer_chunks.append(collect_text_from_table(block, mapping))
+                if footer_chunks:
+                    chunks.append("\n".join(footer_chunks))
+
+            # Схлопываем лишние пустые строки
+            text = "\n".join(s for s in chunks if s is not None)
+            # Убираем тройные/четверные переходы строк
+            while "\n\n\n" in text:
+                text = text.replace("\n\n\n", "\n\n")
+            return text.strip()
+
+        # ---------- Основной поток ----------
         try:
-            doc = DocxTemplate(file_path)
-
-            if anonymize:
-                context = {}
-                for original, pseudo in replacements:
-                    context[original] = f"[{pseudo}]"
-
-                doc.render(context)
-            else:
-                context = {}
-                for pseudo_pattern, original in replacements:
-                    clean_pseudo = pseudo_pattern[1:-1]  # Remove brackets
-                    context[clean_pseudo] = original
-
-                doc.render(context)
-
-            suffix = "_аноним" if anonymize else "_деаном"
-            output_path = self.get_output_path(file_path, suffix, ".docx")
-            doc.save(output_path)
-
-            return f"Файл сохранён как: {output_path.name}"
+            doc = Document(str(file_path))
         except Exception as e:
-            raise ValueError(f"Ошибка обработки .docx файла: {e}")
+            raise ValueError(f"Ошибка чтения .docx файла: {e}")
+
+        if anonymize:
+            # Преобразуем пары (оригинал, псевдоним) -> (оригинал, [псевдоним])
+            mapping = [(orig, f"[{pseudo}]") for orig, pseudo in replacements]
+            # Абзацы
+            for p in doc.paragraphs:
+                replace_in_paragraph(p, mapping)
+            # Таблицы
+            for table in doc.tables:
+                replace_in_table(table, mapping)
+            # Колонтитулы
+            for section in doc.sections:
+                for p in section.header.paragraphs:
+                    replace_in_paragraph(p, mapping)
+                for p in section.footer.paragraphs:
+                    replace_in_paragraph(p, mapping)
+                for table in section.header.tables:
+                    replace_in_table(table, mapping)
+                for table in section.footer.tables:
+                    replace_in_table(table, mapping)
+
+            # Сохраняем новый файл
+            suffix = "_аноним"
+            output_path = self.get_output_path(file_path, suffix, ".docx")
+            try:
+                doc.save(str(output_path))
+            except Exception as e:
+                raise ValueError(f"Ошибка сохранения .docx файла: {e}")
+            return f"Файл сохранён как: {output_path.name}"
+        else:
+            # Режим деанонимизации: ожидаем пары вида ("[ЗАМЕНА001]", "Иванов")
+            mapping = replacements
+            text = collect_text_with_replacements(doc, mapping)
+            # Возвращаем именно текст — вызывающий код положит его в буфер обмена
+            return text
 
     def process_doc_file(self, file_path: Path, replacements: List[Tuple[str, str]],
                          anonymize: bool = True) -> str:
         if textract is None:
             raise ValueError(
-                "Поддержка .doc требует textract; сконвертируйте в .docx или установите textract")
+                "Поддержка .doc требует textract; "
+                "конвертируйте в .docx или установите textract")
 
         try:
             text = textract.process(str(file_path)).decode('utf-8')
@@ -450,16 +563,7 @@ class AnonymizerApp:
             btn.config(state="normal")
 
     def deanonymize_file(self):
-        load_dir = self.config.get('config', 'load_dir', fallback=str(Path.cwd()))
-        filename = filedialog.askopenfilename(
-            initialdir=load_dir,
-            filetypes=[
-                ("Текстовые файлы", "*.txt"),
-                ("Word документы", "*.docx"),
-                ("Word документы (старые)", "*.doc"),
-                ("Все файлы", "*.*")
-            ]
-        )
+        filename = self.load_filename()
 
         if not filename:
             return
@@ -474,7 +578,9 @@ class AnonymizerApp:
                 result = self.process_file_deanonymization(filename)
                 self.root.after(0, lambda: self.show_deanonymization_result(result))
             except Exception as e:
-                self.root.after(0, lambda: messagebox.showerror("Ошибка", str(e)))
+                # self.root.after(0, lambda: messagebox.showerror("Ошибка", str(e)))
+                self.root.after(0, messagebox.showerror, "Ошибка", str(e))
+                raise e
             finally:
                 self.root.after(0, self.restore_ui_state)
 
@@ -515,9 +621,6 @@ class AnonymizerApp:
 
     def process_docx_file_deanonymize(self, file_path: Path,
                                       replacements: List[Tuple[str, str]]) -> str:
-        if DocxTemplate is None:
-            raise ValueError("Модуль docxtpl не установлен")
-
         try:
             return self.process_docx_file(file_path, replacements, anonymize=False)
         except Exception as e:
@@ -527,7 +630,8 @@ class AnonymizerApp:
                                      replacements: List[Tuple[str, str]]) -> str:
         if textract is None:
             raise ValueError(
-                "Поддержка .doc требует textract; сконвертируйте в .docx или установите textract")
+                "Поддержка .doc требует textract; "
+                "конвертируйте в .docx или установите textract")
 
         try:
             content = textract.process(str(file_path)).decode('utf-8')
@@ -566,8 +670,12 @@ class AnonymizerApp:
                     content = content.replace(pattern, original)
 
                 pyperclip.copy(content)
-                self.root.after(0, lambda: messagebox.showinfo("Успех",
-                                                               "Деанонимизированный текст скопирован в буфер обмена."))
+                self.root.after(0,
+                                lambda: messagebox.showinfo(
+                                    "Успех",
+                                    "Деанонимизированный текст скопирован"
+                                    " в буфер обмена."),
+                                )
             except Exception as e:
                 self.root.after(0, lambda: messagebox.showerror("Ошибка", str(e)))
             finally:

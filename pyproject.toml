@@ -6,10 +6,13 @@ readme = "README.md"
 requires-python = ">=3.12"
 dependencies = [
     "docxtpl>=0.20.1",
+    "pyinstaller>=6.16.0",
 ]
 
 [dependency-groups]
 dev = [
     "pydantic-settings>=2.11.0",
     "pyperclip>=1.11.0",
+    "setuptools==80.9.0",
+    "textract>=1.6.5",
 ]
