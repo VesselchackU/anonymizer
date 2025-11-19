@@ -208,3 +208,5 @@ __marimo__/
 /prompts/
 /pseudos.json.bak
 /uv.lock
+/pseudos.json
+/main.ini
