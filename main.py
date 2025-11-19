@@ -216,19 +216,19 @@ class AnonymizerApp:
             self.deanon_val_entry.insert(0, pseudonym)
             self.deanon_val_entry.config(state="readonly")
 
-    def generate_pseudonym(self) -> str:
+    def generate_pseudonym(self, initial_pseudo: str = None) -> str:
         max_num = 0
+        initial_pseudo = initial_pseudo or "ЗАМЕНА"
         for pseudo in self.deanon_dict.keys():
-            if pseudo.startswith("ЗАМЕНА"):
+            if pseudo.startswith(initial_pseudo):
                 try:
-                    num_str = pseudo[6:]
+                    num_str = pseudo[len(initial_pseudo):]
                     num = int(num_str)
-                    if num > max_num:
-                        max_num = num
+                    max_num = max(max_num, num)
                 except ValueError:
                     continue
         new_num = max_num + 1
-        return f"ЗАМЕНА{new_num:03d}"
+        return f"{initial_pseudo}{new_num:03d}"
 
     def add_pair(self):
         key = self.anon_entry.get().strip()
@@ -246,8 +246,9 @@ class AnonymizerApp:
             value = self.generate_pseudonym()
 
         if value in self.deanon_dict:
-            messagebox.showwarning("Предупреждение", "Такой псевдоним уже используется")
-            return
+            value = self.generate_pseudonym(value)
+            # messagebox.showwarning("Предупреждение", "Такой псевдоним уже используется")
+            # return
 
         self.anon_dict[key] = value
         self.deanon_dict[value] = key
