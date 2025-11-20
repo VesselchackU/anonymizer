@@ -1,0 +1,23 @@
+repos:
+  - repo: https://github.com/pre-commit/pre-commit-hooks
+    rev: v4.6.0
+    hooks:
+      - id: check-docstring-first
+      - id: check-merge-conflict
+      - id: end-of-file-fixer
+      - id: trailing-whitespace
+
+  - repo: https://github.com/astral-sh/ruff-pre-commit
+    rev: v0.6.8
+    hooks:
+      - id: ruff
+        #        exclude: migrations/|config/|tests/|.*settings(\.py|/)?
+        types_or: [ python ]
+      - id: ruff-format
+        #        exclude: migrations/|config/|tests/|.*settings(\.py|/)?
+        types_or: [ python ]
+
+  - repo: https://github.com/pre-commit/mirrors-mypy
+    rev: v1.18.2 # Use the revision you want here
+    hooks:
+      - id: mypy
