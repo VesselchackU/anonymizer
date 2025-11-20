@@ -7,8 +7,8 @@ import tempfile
 import threading
 import tkinter as tk
 from pathlib import Path
-from tkinter import ttk, filedialog, messagebox
-from typing import Dict, List, Tuple
+from tkinter import filedialog, messagebox, ttk
+from typing import Dict, List, Optional, Tuple
 
 import pyperclip
 import textract
@@ -16,12 +16,14 @@ from docx import Document
 from docx.table import Table
 from docx.text.paragraph import Paragraph
 
+from config import settings
+
 
 class AnonymizerApp:
-    def __init__(self, root):
+    def __init__(self, root) -> None:
         self.anon_entry = None
-        self.config_file = None
-        self.config = None
+        self.config_file: Path = self.get_config_path()
+        self.config = configparser.ConfigParser()
         self.root = root
         self.root.title("Анонимизатор текстов")
         self.root.geometry("640x480")
@@ -36,73 +38,71 @@ class AnonymizerApp:
         self.center_or_restore_window()
         self.bind_events()
 
-    def setup_logging(self):
+    @staticmethod
+    def setup_logging():
         logging.basicConfig(
             level=logging.INFO,
-            format='%(asctime)s - %(levelname)s - %(message)s',
+            format="%(asctime)s - %(levelname)s - %(message)s",
             handlers=[
-                logging.FileHandler('anonymizer.log', encoding='utf-8'),
-                logging.StreamHandler()
-            ]
+                logging.FileHandler("anonymizer.log", encoding="utf-8"),
+                logging.StreamHandler(),
+            ],
         )
 
     def load_config(self):
-        self.config = configparser.ConfigParser()
-        self.config_file = self.get_config_path()
-
         if not self.config_file.exists():
             self.create_default_config()
 
-        self.config.read(self.config_file, encoding='utf-8')
+        self.config.read(self.config_file, encoding="utf-8")
 
-    def get_config_path(self) -> Path:
-        from config import settings
+    @staticmethod
+    def get_config_path() -> Path:
         if settings.main_ini_dir:
             return Path(settings.main_ini_dir) / "main.ini"
         return Path(__file__).parent / "main.ini"
 
-    def get_pseudos_path(self) -> Path:
-        from config import settings
+    @staticmethod
+    def get_pseudos_path() -> Path:
         if settings.pseudos_list_dir:
             return Path(settings.pseudos_list_dir) / "pseudos.json"
         return Path(__file__).parent / "pseudos.json"
 
     def create_default_config(self):
-        self.config['window'] = {
-            'coord_x': '100',
-            'coord_y': '100'
+        self.config["window"] = {"coord_x": "100", "coord_y": "100"}
+        self.config["config"] = {
+            "load_dir": str(Path.cwd()),
+            "last_open_dir": str(Path.cwd()),
         }
-        self.config['config'] = {
-            'load_dir': str(Path.cwd()),
-            'last_open_dir': str(Path.cwd())
-        }
-        with open(self.config_file, 'w', encoding='utf-8') as f:
+        with open(self.config_file, "w", encoding="utf-8") as f:
             self.config.write(f)
 
     def load_pseudos(self):
         pseudos_file = self.get_pseudos_path()
         try:
             if pseudos_file.exists():
-                with open(pseudos_file, 'r', encoding='utf-8') as f:
+                with open(pseudos_file, "r", encoding="utf-8") as f:
                     self.anon_dict = json.load(f)
                 self.deanon_dict = {v: k for k, v in self.anon_dict.items()}
                 logging.info(f"Загружено {len(self.anon_dict)} псевдонимов")
         except Exception as e:
             logging.error(f"Ошибка загрузки pseudos.json: {e}")
-            messagebox.showerror("Ошибка",
-                                 f"Не удалось загрузить словарь псевдонимов: {e}")
+            messagebox.showerror(
+                "Ошибка", f"Не удалось загрузить словарь псевдонимов: {e}"
+            )
 
     def save_pseudos(self):
         pseudos_file = self.get_pseudos_path()
-        backup_file = pseudos_file.with_suffix('.json.bak')
+        backup_file = pseudos_file.with_suffix(
+            ".json.bak",
+        )
 
         try:
             if pseudos_file.exists():
                 shutil.copy2(pseudos_file, backup_file)
 
-            with tempfile.NamedTemporaryFile(mode='w', encoding='utf-8',
-                                             dir=pseudos_file.parent,
-                                             delete=False) as tmp:
+            with tempfile.NamedTemporaryFile(
+                mode="w", encoding="utf-8", dir=pseudos_file.parent, delete=False
+            ) as tmp:
                 json.dump(self.anon_dict, tmp, ensure_ascii=False, indent=2)
                 tmp_path = tmp.name
 
@@ -110,8 +110,9 @@ class AnonymizerApp:
             logging.info("Словарь псевдонимов сохранён")
         except Exception as e:
             logging.error(f"Ошибка сохранения pseudos.json: {e}")
-            messagebox.showerror("Ошибка",
-                                 f"Не удалось сохранить словарь псевдонимов: {e}")
+            messagebox.showerror(
+                "Ошибка", f"Не удалось сохранить словарь псевдонимов: {e}"
+            )
 
     def setup_gui(self):
         main_frame = ttk.Frame(self.root, padding="10")
@@ -142,8 +143,9 @@ class AnonymizerApp:
         self.pseudonym_entry = ttk.Entry(frame, width=30)
         self.pseudonym_entry.grid(row=3, column=0, sticky="ew", pady=(0, 5))
 
-        self.add_button = ttk.Button(frame, text="Добавить", command=self.add_pair,
-                                     state="disabled")
+        self.add_button = ttk.Button(
+            frame, text="Добавить", command=self.add_pair, state="disabled"
+        )
         self.add_button.grid(row=4, column=0, sticky="w")
 
         frame.columnconfigure(0, weight=1)
@@ -152,16 +154,21 @@ class AnonymizerApp:
         frame = ttk.LabelFrame(parent, text="Операции", padding="5")
         frame.grid(row=1, column=0, sticky="nsew")
 
-        self.anon_file_btn = ttk.Button(frame, text="Анонимизировать файл",
-                                        command=self.anonymize_file)
+        self.anon_file_btn = ttk.Button(
+            frame, text="Анонимизировать файл", command=self.anonymize_file
+        )
         self.anon_file_btn.pack(fill=tk.X, pady=2)
 
-        self.deanon_file_btn = ttk.Button(frame, text="Деанонимизировать в буфер",
-                                          command=self.deanonymize_file)
+        self.deanon_file_btn = ttk.Button(
+            frame, text="Деанонимизировать в буфер", command=self.deanonymize_file
+        )
         self.deanon_file_btn.pack(fill=tk.X, pady=2)
 
-        self.deanon_clipboard_btn = ttk.Button(frame, text="Деанонимизировать из буфера",
-                                               command=self.deanonymize_clipboard)
+        self.deanon_clipboard_btn = ttk.Button(
+            frame,
+            text="Деанонимизировать из буфера",
+            command=self.deanonymize_clipboard,
+        )
         self.deanon_clipboard_btn.pack(fill=tk.X, pady=2)
 
     def setup_frame3(self, parent):
@@ -181,23 +188,23 @@ class AnonymizerApp:
         self.update_anon_list()
 
     def bind_events(self):
-        self.anon_entry.bind('<KeyRelease>', self.on_anon_entry_change)
-        self.anon_list.bind('<<ListboxSelect>>', self.on_list_select)
-        self.root.bind('<Configure>', self.on_window_move)
+        self.anon_entry.bind("<KeyRelease>", self.on_anon_entry_change)
+        self.anon_list.bind("<<ListboxSelect>>", self.on_list_select)
+        self.root.bind("<Configure>", self.on_window_move)
 
     def center_or_restore_window(self):
         try:
-            x = self.config.getint('window', 'coord_x')
-            y = self.config.getint('window', 'coord_y')
+            x = self.config.getint("window", "coord_x")
+            y = self.config.getint("window", "coord_y")
             self.root.geometry(f"+{x}+{y}")
         except (configparser.NoOptionError, ValueError):
-            self.root.eval('tk::PlaceWindow . center')
+            self.root.eval("tk::PlaceWindow . center")
 
     def on_window_move(self, event):
         if event.widget == self.root:
-            self.config.set('window', 'coord_x', str(self.root.winfo_x()))
-            self.config.set('window', 'coord_y', str(self.root.winfo_y()))
-            with open(self.config_file, 'w', encoding='utf-8') as f:
+            self.config.set("window", "coord_x", str(self.root.winfo_x()))
+            self.config.set("window", "coord_y", str(self.root.winfo_y()))
+            with open(self.config_file, "w", encoding="utf-8") as f:
                 self.config.write(f)
 
     def on_anon_entry_change(self, event):
@@ -216,13 +223,13 @@ class AnonymizerApp:
             self.deanon_val_entry.insert(0, pseudonym)
             self.deanon_val_entry.config(state="readonly")
 
-    def generate_pseudonym(self, initial_pseudo: str = None) -> str:
+    def generate_pseudonym(self, initial_pseudo: Optional[str] = None) -> str:
         max_num = 0
         initial_pseudo = initial_pseudo or "ЗАМЕНА"
         for pseudo in self.deanon_dict.keys():
             if pseudo.startswith(initial_pseudo):
                 try:
-                    num_str = pseudo[len(initial_pseudo):]
+                    num_str = pseudo[len(initial_pseudo) :]
                     num = int(num_str)
                     max_num = max(max_num, num)
                 except ValueError:
@@ -247,8 +254,6 @@ class AnonymizerApp:
 
         if value in self.deanon_dict:
             value = self.generate_pseudonym(value)
-            # messagebox.showwarning("Предупреждение", "Такой псевдоним уже используется")
-            # return
 
         self.anon_dict[key] = value
         self.deanon_dict[value] = key
@@ -274,8 +279,9 @@ class AnonymizerApp:
 
         key = self.anon_list.get(selection[0])
 
-        if not messagebox.askyesno("Подтверждение",
-                                   f"Удалить пару '{key}' -> '{self.anon_dict[key]}'?"):
+        if not messagebox.askyesno(
+            "Подтверждение", f"Удалить пару '{key}' -> '{self.anon_dict[key]}'?"
+        ):
             return
 
         value = self.anon_dict[key]
@@ -297,22 +303,23 @@ class AnonymizerApp:
         return items
 
     def get_deanonymization_order(self) -> List[Tuple[str, str]]:
-        items = [(f"[{pseudo}]", original) for pseudo, original in
-                 self.deanon_dict.items()]
+        items = [
+            (f"[{pseudo}]", original) for pseudo, original in self.deanon_dict.items()
+        ]
         items.sort(key=lambda x: (-len(x[0]), x[0]))
         return items
 
     def load_filename(self) -> str:
-        load_dir = self.config.get('config', 'last_open_dir', fallback=str(Path.cwd()))
+        load_dir = self.config.get("config", "last_open_dir", fallback=str(Path.cwd()))
         filename = filedialog.askopenfilename(
             initialdir=load_dir,
             filetypes=[
                 ("Поддерживаемые файлы", ["*.txt", "*.doc", "*.docx"]),
-                ("Все файлы", "*.*")
-            ]
+                ("Все файлы", "*.*"),
+            ],
         )
-        self.config.set('config', 'last_open_dir', str(Path(filename).parent))
-        with open(self.config_file, 'w', encoding='utf-8') as f:
+        self.config.set("config", "last_open_dir", str(Path(filename).parent))
+        with open(self.config_file, "w", encoding="utf-8") as f:
             self.config.write(f)
         return filename
 
@@ -325,8 +332,11 @@ class AnonymizerApp:
         def worker():
             try:
                 self.root.config(cursor="watch")
-                for btn in [self.anon_file_btn, self.deanon_file_btn,
-                            self.deanon_clipboard_btn]:
+                for btn in [
+                    self.anon_file_btn,
+                    self.deanon_file_btn,
+                    self.deanon_clipboard_btn,
+                ]:
                     btn.config(state="disabled")
 
                 result = self.process_file_anonymization(filename)
@@ -343,23 +353,24 @@ class AnonymizerApp:
         file_path = Path(filename)
         replacements = self.get_replacement_order()
 
-        if file_path.suffix.lower() == '.txt':
+        if file_path.suffix.lower() == ".txt":
             return self.process_txt_file(file_path, replacements)
-        elif file_path.suffix.lower() == '.docx':
+        elif file_path.suffix.lower() == ".docx":
             return self.process_docx_file(file_path, replacements, anonymize=True)
-        elif file_path.suffix.lower() == '.doc':
+        elif file_path.suffix.lower() == ".doc":
             return self.process_doc_file(file_path, replacements, anonymize=True)
         else:
             raise ValueError("Неподдерживаемый формат файла")
 
-    def process_txt_file(self, file_path: Path,
-                         replacements: List[Tuple[str, str]]) -> str:
+    def process_txt_file(
+        self, file_path: Path, replacements: List[Tuple[str, str]]
+    ) -> str:
         try:
-            with open(file_path, 'r', encoding='utf-8') as f:
+            with open(file_path, "r", encoding="utf-8") as f:
                 content = f.read()
         except UnicodeDecodeError:
             try:
-                with open(file_path, 'r', encoding='cp1251') as f:
+                with open(file_path, "r", encoding="cp1251") as f:
                     content = f.read()
             except UnicodeDecodeError as e:
                 raise ValueError(f"Не удалось прочитать файл: {e}")
@@ -368,16 +379,20 @@ class AnonymizerApp:
             content = content.replace(original, f"[{pseudo}]")
 
         output_path = self.get_output_path(file_path, "_аноним")
-        with open(output_path, 'w', encoding='utf-8') as f:
+        with open(output_path, "w", encoding="utf-8") as f:
             f.write(content)
 
         return f"Файл сохранён как: {output_path.name}"
 
-    def process_docx_file(self, file_path: Path, replacements: List[Tuple[str, str]],
-                          anonymize: bool = True) -> str:
-
+    def process_docx_file(
+        self,
+        file_path: Path,
+        replacements: List[Tuple[str, str]],
+        anonymize: bool = True,
+    ) -> str:
         def apply_mapping_to_text(text: str, mapping: List[Tuple[str, str]]) -> str:
-            # Ожидается, что mapping уже отсортирован снаружи от длинных ключей к коротким
+            # Ожидается, что mapping уже отсортирован
+            # снаружи от длинных ключей к коротким
             for src, dst in mapping:
                 if src:
                     text = text.replace(src, dst)
@@ -426,14 +441,16 @@ class AnonymizerApp:
             for row in table.rows:
                 cells_text = []
                 for cell in row.cells:
-                    cell_pars = [apply_mapping_to_text(p.text, mapping) for p in
-                                 cell.paragraphs]
+                    cell_pars = [
+                        apply_mapping_to_text(p.text, mapping) for p in cell.paragraphs
+                    ]
                     cells_text.append("\n".join(cell_pars).strip())
                 lines.append("\t".join(cells_text))
             return "\n".join(lines)
 
-        def collect_text_with_replacements(doc_obj,
-                                           mapping: List[Tuple[str, str]]) -> str:
+        def collect_text_with_replacements(
+            doc_obj, mapping: List[Tuple[str, str]]
+        ) -> str:
             chunks = []
 
             # Основное тело документа
@@ -512,15 +529,20 @@ class AnonymizerApp:
             # Возвращаем именно текст — вызывающий код положит его в буфер обмена
             return text
 
-    def process_doc_file(self, file_path: Path, replacements: List[Tuple[str, str]],
-                         anonymize: bool = True) -> str:
+    def process_doc_file(
+        self,
+        file_path: Path,
+        replacements: List[Tuple[str, str]],
+        anonymize: bool = True,
+    ) -> str:
         if textract is None:
             raise ValueError(
                 "Поддержка .doc требует textract; "
-                "конвертируйте в .docx или установите textract")
+                "конвертируйте в .docx или установите textract"
+            )
 
         try:
-            text = textract.process(str(file_path)).decode('utf-8')
+            text = textract.process(str(file_path)).decode("utf-8")
         except Exception as e:
             raise ValueError(f"Ошибка чтения .doc файла: {e}")
 
@@ -533,13 +555,14 @@ class AnonymizerApp:
 
         suffix = "_аноним" if anonymize else "_деаном"
         output_path = self.get_output_path(file_path, suffix, ".txt")
-        with open(output_path, 'w', encoding='utf-8') as f:
+        with open(output_path, "w", encoding="utf-8") as f:
             f.write(text)
 
         return f"Файл сохранён как: {output_path.name}"
 
-    def get_output_path(self, original_path: Path, suffix: str,
-                        force_ext: str = None) -> Path:
+    def get_output_path(
+        self, original_path: Path, suffix: str, force_ext: Optional[str] = None
+    ) -> Path:
         ext = force_ext if force_ext else original_path.suffix
         base_name = original_path.stem
 
@@ -560,7 +583,11 @@ class AnonymizerApp:
 
     def restore_ui_state(self):
         self.root.config(cursor="")
-        for btn in [self.anon_file_btn, self.deanon_file_btn, self.deanon_clipboard_btn]:
+        for btn in [
+            self.anon_file_btn,
+            self.deanon_file_btn,
+            self.deanon_clipboard_btn,
+        ]:
             btn.config(state="normal")
 
     def deanonymize_file(self):
@@ -572,8 +599,11 @@ class AnonymizerApp:
         def worker():
             try:
                 self.root.config(cursor="watch")
-                for btn in [self.anon_file_btn, self.deanon_file_btn,
-                            self.deanon_clipboard_btn]:
+                for btn in [
+                    self.anon_file_btn,
+                    self.deanon_file_btn,
+                    self.deanon_clipboard_btn,
+                ]:
                     btn.config(state="disabled")
 
                 result = self.process_file_deanonymization(filename)
@@ -591,11 +621,11 @@ class AnonymizerApp:
         file_path = Path(filename)
         replacements = self.get_deanonymization_order()
 
-        if file_path.suffix.lower() == '.txt':
+        if file_path.suffix.lower() == ".txt":
             content = self.process_txt_file_deanonymize(file_path, replacements)
-        elif file_path.suffix.lower() == '.docx':
+        elif file_path.suffix.lower() == ".docx":
             content = self.process_docx_file_deanonymize(file_path, replacements)
-        elif file_path.suffix.lower() == '.doc':
+        elif file_path.suffix.lower() == ".doc":
             content = self.process_doc_file_deanonymize(file_path, replacements)
         else:
             raise ValueError("Неподдерживаемый формат файла")
@@ -603,14 +633,15 @@ class AnonymizerApp:
         pyperclip.copy(content)
         return "Деанонимизированный текст скопирован в буфер обмена."
 
-    def process_txt_file_deanonymize(self, file_path: Path,
-                                     replacements: List[Tuple[str, str]]) -> str:
+    def process_txt_file_deanonymize(
+        self, file_path: Path, replacements: List[Tuple[str, str]]
+    ) -> str:
         try:
-            with open(file_path, 'r', encoding='utf-8') as f:
+            with open(file_path, "r", encoding="utf-8") as f:
                 content = f.read()
         except UnicodeDecodeError:
             try:
-                with open(file_path, 'r', encoding='cp1251') as f:
+                with open(file_path, "r", encoding="cp1251") as f:
                     content = f.read()
             except UnicodeDecodeError as e:
                 raise ValueError(f"Не удалось прочитать файл: {e}")
@@ -620,22 +651,25 @@ class AnonymizerApp:
 
         return content
 
-    def process_docx_file_deanonymize(self, file_path: Path,
-                                      replacements: List[Tuple[str, str]]) -> str:
+    def process_docx_file_deanonymize(
+        self, file_path: Path, replacements: List[Tuple[str, str]]
+    ) -> str:
         try:
             return self.process_docx_file(file_path, replacements, anonymize=False)
         except Exception as e:
             raise ValueError(f"Ошибка деанонимизации .docx файла: {e}")
 
-    def process_doc_file_deanonymize(self, file_path: Path,
-                                     replacements: List[Tuple[str, str]]) -> str:
+    def process_doc_file_deanonymize(
+        self, file_path: Path, replacements: List[Tuple[str, str]]
+    ) -> str:
         if textract is None:
             raise ValueError(
                 "Поддержка .doc требует textract; "
-                "конвертируйте в .docx или установите textract")
+                "конвертируйте в .docx или установите textract"
+            )
 
         try:
-            content = textract.process(str(file_path)).decode('utf-8')
+            content = textract.process(str(file_path)).decode("utf-8")
         except Exception as e:
             raise ValueError(f"Ошибка чтения .doc файла: {e}")
 
@@ -660,8 +694,11 @@ class AnonymizerApp:
         def worker():
             try:
                 self.root.config(cursor="watch")
-                for btn in [self.anon_file_btn, self.deanon_file_btn,
-                            self.deanon_clipboard_btn]:
+                for btn in [
+                    self.anon_file_btn,
+                    self.deanon_file_btn,
+                    self.deanon_clipboard_btn,
+                ]:
                     btn.config(state="disabled")
 
                 replacements = self.get_deanonymization_order()
@@ -671,12 +708,12 @@ class AnonymizerApp:
                     content = content.replace(pattern, original)
 
                 pyperclip.copy(content)
-                self.root.after(0,
-                                lambda: messagebox.showinfo(
-                                    "Успех",
-                                    "Деанонимизированный текст скопирован"
-                                    " в буфер обмена."),
-                                )
+                self.root.after(
+                    0,
+                    lambda: messagebox.showinfo(
+                        "Успех", "Деанонимизированный текст скопирован в буфер обмена."
+                    ),
+                )
             except Exception as e:
                 self.root.after(0, lambda: messagebox.showerror("Ошибка", str(e)))
             finally:
