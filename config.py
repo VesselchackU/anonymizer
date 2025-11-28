@@ -1,3 +1,5 @@
+import configparser
+from pathlib import Path
 from typing import Optional
 
 from pydantic_settings import BaseSettings
@@ -14,3 +16,77 @@ class Settings(BaseSettings):
 
 
 settings = Settings()
+
+
+class AppConfig:
+    """
+    Обёртка над main.ini.
+
+    Отвечает за:
+    - загрузку и сохранение ini-файла;
+    - координаты окна;
+    - последний каталог открытия файлов.
+    """
+
+    def __init__(self, path: Path) -> None:
+        self.path = path
+        self.parser = configparser.ConfigParser()
+        self._load()
+
+    @staticmethod
+    def default_path() -> Path:
+        # По сути логика из get_config_path
+        if settings.main_ini_dir:
+            return Path(settings.main_ini_dir) / "main.ini"
+        return Path(__file__).parent / "main.ini"
+
+    def _create_default(self) -> None:
+        self.parser["window"] = {"coord_x": "100", "coord_y": "100"}
+        self.parser["config"] = {
+            "load_dir": str(Path.cwd()),
+            "last_open_dir": str(Path.cwd()),
+        }
+        self.save()
+
+    def _load(self) -> None:
+        if not self.path.exists():
+            self._create_default()
+        self.parser.read(self.path, encoding="utf-8")
+
+    def save(self) -> None:
+        with open(self.path, "w", encoding="utf-8") as f:
+            self.parser.write(f)
+
+    # --- Окно ---
+
+    @property
+    def window_position(self) -> Optional[tuple[int, int]]:
+        try:
+            x = self.parser.getint("window", "coord_x")
+            y = self.parser.getint("window", "coord_y")
+            return x, y
+        except (configparser.NoSectionError, configparser.NoOptionError, ValueError):
+            return None
+
+    @window_position.setter
+    def window_position(self, pos: tuple[int, int]) -> None:
+        x, y = pos
+        if "window" not in self.parser:
+            self.parser["window"] = {}
+        self.parser.set("window", "coord_x", str(x))
+        self.parser.set("window", "coord_y", str(y))
+        self.save()
+
+    # --- Каталог открытия файлов ---
+
+    @property
+    def last_open_dir(self) -> Path:
+        dir_str = self.parser.get("config", "last_open_dir", fallback=str(Path.cwd()))
+        return Path(dir_str)
+
+    @last_open_dir.setter
+    def last_open_dir(self, value: Path) -> None:
+        if "config" not in self.parser:
+            self.parser["config"] = {}
+        self.parser.set("config", "last_open_dir", str(value))
+        self.save()

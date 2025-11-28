@@ -1,36 +1,31 @@
-import configparser
 import logging
 import threading
 import tkinter as tk
 from pathlib import Path
 from tkinter import filedialog, messagebox, ttk
-from typing import List, Optional, Tuple
+from typing import Callable, List, Optional, Tuple
 
 import pyperclip
 
 from component.label_frame_bottom_left import LabelFrameBottomLeft
 from component.label_frame_right import LabelFrameRight
 from component.label_frame_top_left import LabelFrameTopLeft
-from config import settings
+from config import AppConfig, settings
 from core import AnonymizationService, FileProcessor, PseudonymStore
 
 
 class AnonymizerApp:
+    frame1: LabelFrameTopLeft
+    frame2: LabelFrameBottomLeft
+    frame3: LabelFrameRight
+
     def __init__(self, root) -> None:
-        self.entry_anon: Optional[ttk.Entry] = None
-        self.entry_pseudonym: Optional[ttk.Entry] = None
-        self.btn_add_pair: Optional[ttk.Button] = None
-        self.frame1: Optional[LabelFrameTopLeft] = None
-        self.frame2: Optional[LabelFrameBottomLeft] = None
-        self.frame3: Optional[LabelFrameRight] = None
-        self.config_file: Path = self.get_config_path()
-        self.config = configparser.ConfigParser()
         self.root = root
         self.root.title("Анонимизатор текстов")
         self.root.geometry("640x480")
 
         self.setup_logging()
-        self.load_config()
+        self.app_config = AppConfig(AppConfig.default_path())
 
         self.store = PseudonymStore(self.get_pseudos_path())
         self.store.load()
@@ -56,32 +51,11 @@ class AnonymizerApp:
             ],
         )
 
-    def load_config(self):
-        if not self.config_file.exists():
-            self.create_default_config()
-
-        self.config.read(self.config_file, encoding="utf-8")
-
-    @staticmethod
-    def get_config_path() -> Path:
-        if settings.main_ini_dir:
-            return Path(settings.main_ini_dir) / "main.ini"
-        return Path(__file__).parent / "main.ini"
-
     @staticmethod
     def get_pseudos_path() -> Path:
         if settings.pseudos_list_dir:
             return Path(settings.pseudos_list_dir) / "pseudos.json"
         return Path(__file__).parent / "pseudos.json"
-
-    def create_default_config(self):
-        self.config["window"] = {"coord_x": "100", "coord_y": "100"}
-        self.config["config"] = {
-            "load_dir": str(Path.cwd()),
-            "last_open_dir": str(Path.cwd()),
-        }
-        with open(self.config_file, "w", encoding="utf-8") as f:
-            self.config.write(f)
 
     def load_pseudos(self):
         self.store.load()
@@ -129,27 +103,30 @@ class AnonymizerApp:
         self.root.bind("<Configure>", self.on_window_move)
 
     def center_or_restore_window(self):
-        try:
-            x = self.config.getint("window", "coord_x")
-            y = self.config.getint("window", "coord_y")
+        pos = self.app_config.window_position
+        if pos:
+            x, y = pos
             self.root.geometry(f"+{x}+{y}")
-        except (configparser.NoOptionError, ValueError):
+        else:
             self.root.eval("tk::PlaceWindow . center")
 
     def on_window_move(self, event):
         if event.widget == self.root:
-            self.config.set("window", "coord_x", str(self.root.winfo_x()))
-            self.config.set("window", "coord_y", str(self.root.winfo_y()))
-            with open(self.config_file, "w", encoding="utf-8") as f:
-                self.config.write(f)
+            self.app_config.window_position = (
+                self.root.winfo_x(),
+                self.root.winfo_y(),
+            )
 
-    def on_anon_entry_change(self, event):
+    def on_anon_entry_change(self, event):  # noqa: F841
         if self.frame1.entry_anon.get().strip():
             self.frame1.btn_add_pair.config(state="normal")
         else:
             self.frame1.btn_add_pair.config(state="disabled")
 
-    def on_list_select(self, event):
+    def on_list_select(
+        self,
+        event,  # noqa: F841
+    ):
         selection = self.frame3.listbox_anon.curselection()
         if selection:
             key = self.frame3.listbox_anon.get(selection[0])
@@ -229,47 +206,36 @@ class AnonymizerApp:
         return self.store.get_deanonymization_order()
 
     def load_filename(self) -> str:
-        load_dir = self.config.get("config", "last_open_dir", fallback=str(Path.cwd()))
+        load_dir = self.app_config.last_open_dir
+
         filename = filedialog.askopenfilename(
-            initialdir=load_dir,
+            initialdir=str(load_dir),
             filetypes=[
                 ("Поддерживаемые файлы", ["*.txt", "*.doc", "*.docx"]),
                 ("Все файлы", "*.*"),
             ],
         )
-        self.config.set("config", "last_open_dir", str(Path(filename).parent))
-        with open(self.config_file, "w", encoding="utf-8") as f:
-            self.config.write(f)
+
+        if filename:
+            self.app_config.last_open_dir = Path(filename).parent
+
         return filename
 
-    def anonymize_file(self):
+    def anonymize_file(self) -> None:
         filename = self.load_filename()
-
         if not filename:
             return
 
-        def worker():
-            try:
-                self.root.config(cursor="watch")
-                for btn in [
-                    self.frame2.btn_anon,
-                    self.frame2.btn_deanon_file,
-                    self.frame2.btn_deanon_to_file,
-                    self.frame2.btn_deanon_clipboard,
-                ]:
-                    btn.config(state="disabled")
+        def task() -> str:
+            return self.service.anonymize_file(filename)
 
-                result = self.service.anonymize_file(filename)
-                self.root.after(0, lambda: self.show_anonymization_result(result))
-            except Exception as e:
-                logging.error(f"Ошибка анонимизации: {str(e)}")
-                self.root.after(0, lambda: messagebox.showerror("Ошибка", "str(e)"))
-            finally:
-                self.root.after(0, self.restore_ui_state)
+        def on_success(msg: str) -> None:
+            self.show_anonymization_result(msg)
 
-        threading.Thread(target=worker, daemon=True).start()
+        self.run_in_thread(task, on_success, error_title="Ошибка анонимизации")
 
-    def show_anonymization_result(self, message: str):
+    @staticmethod
+    def show_anonymization_result(message: str):
         messagebox.showinfo("Успех", message)
 
     def restore_ui_state(self):
@@ -282,66 +248,38 @@ class AnonymizerApp:
         ]:
             btn.config(state="normal")
 
-    def deanonymize_file(self):
+    def deanonymize_file(self) -> None:
         filename = self.load_filename()
-
         if not filename:
             return
 
-        def worker():
-            try:
-                self.root.config(cursor="watch")
-                for btn in [
-                    self.frame2.btn_anon,
-                    self.frame2.btn_deanon_file,
-                    self.frame2.btn_deanon_to_file,
-                    self.frame2.btn_deanon_clipboard,
-                ]:
-                    btn.config(state="disabled")
+        def task() -> str:
+            return self.service.deanonymize_file(filename)
 
-                result = self.service.deanonymize_file(filename)
-                self.root.after(0, lambda: self.show_deanonymization_result(result))
-            except Exception as e:
-                # self.root.after(0, lambda: messagebox.showerror("Ошибка", str(e)))
-                self.root.after(0, messagebox.showerror, "Ошибка", str(e))
-                raise e
-            finally:
-                self.root.after(0, self.restore_ui_state)
+        def on_success(msg: str) -> None:
+            self.show_deanonymization_result(msg)
 
-        threading.Thread(target=worker, daemon=True).start()
+        self.run_in_thread(task, on_success, error_title="Ошибка деанонимизации")
 
-    def deanonymize_file_to_file(self):
+    def deanonymize_file_to_file(self) -> None:
         filename = self.load_filename()
-
         if not filename:
             return
 
-        def worker():
-            try:
-                self.root.config(cursor="watch")
-                for btn in [
-                    self.frame2.btn_anon,
-                    self.frame2.btn_deanon_file,
-                    self.frame2.btn_deanon_to_file,
-                    self.frame2.btn_deanon_clipboard,
-                ]:
-                    btn.config(state="disabled")
+        def task() -> str:
+            return self.service.deanonymize_file(
+                filename,
+                to_clipboard=False,
+                to_file=True,
+            )
 
-                result = self.service.deanonymize_file(
-                    filename,
-                    to_clipboard=False,
-                    to_file=True,
-                )
-                self.root.after(0, lambda: self.show_deanonymization_result(result))
-            except Exception as e:
-                self.root.after(0, messagebox.showerror, "Ошибка", str(e))
-                raise e
-            finally:
-                self.root.after(0, self.restore_ui_state)
+        def on_success(msg: str) -> None:
+            self.show_deanonymization_result(msg)
 
-        threading.Thread(target=worker, daemon=True).start()
+        self.run_in_thread(task, on_success, error_title="Ошибка деанонимизации")
 
-    def show_deanonymization_result(self, message: str):
+    @staticmethod
+    def show_deanonymization_result(message: str):
         messagebox.showinfo("Успех", message)
 
     def deanonymize_clipboard(self):
@@ -383,6 +321,58 @@ class AnonymizerApp:
             finally:
                 self.root.after(0, self.restore_ui_state)
 
+        threading.Thread(target=worker, daemon=True).start()
+
+    def set_busy(self, busy: bool) -> None:
+        """
+        Переключает состояние интерфейса между «занят» и «свободен».
+        Меняет курсор и активность основных кнопок.
+        """
+        self.root.config(cursor="watch" if busy else "")
+
+        buttons = [
+            self.frame2.btn_anon,
+            self.frame2.btn_deanon_file,
+            self.frame2.btn_deanon_to_file,
+            self.frame2.btn_deanon_clipboard,
+            self.frame1.btn_add_pair,
+        ]
+
+        state = "disabled" if busy else "normal"
+        for btn in buttons:
+            btn.config(state=state)
+
+    def run_in_thread(
+        self,
+        task: Callable[[], str],
+        on_success: Callable[[str], None],
+        error_title: str = "Ошибка",
+    ) -> None:
+        """
+        Запускает задачу в фоновом потоке с автоматическим управлением
+        состоянием интерфейса (индикатор загрузки) и обработкой результата
+
+        @param task: функция без аргументов, выполняет фоновую работу
+            и возвращает строку-результат;
+        @param on_success: обработчик результата, вызывается
+            в главном потоке через root.after() после успешного завершения;
+        @param error_title: заголовок окна ошибки, отображается при исключении;
+        """
+
+        def worker():
+            try:
+                result = task()
+                self.root.after(0, lambda: on_success(result))
+            except Exception as e:
+                logging.exception("Ошибка фоновой операции")
+                self.root.after(
+                    0,
+                    lambda: messagebox.showerror(error_title, str(e)),
+                )
+            finally:
+                self.root.after(0, lambda: self.set_busy(False))
+
+        self.set_busy(True)
         threading.Thread(target=worker, daemon=True).start()
 
 

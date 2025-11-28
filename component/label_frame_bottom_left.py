@@ -29,7 +29,7 @@ class LabelFrameBottomLeft(ttk.LabelFrame):
         )
         self.btn_deanon_file.pack(fill=tk.X, pady=2)
 
-        # Новая кнопка: деанонимизировать в файл
+        # Кнопка: деанонимизировать в файл
         self.btn_deanon_to_file = ttk.Button(
             self,
             text="Деанонимизировать в файл",
