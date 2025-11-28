@@ -104,9 +104,28 @@ class FileProcessor:
     - сохранение результата и генерацию имени выходного файла.
     """
 
+    DOCX_OPEN_ERROR_MESSAGE = (
+        "Не удалось открыть файл как документ Word.\n\n"
+        "Возможные причины:\n"
+        "• файл открыт и ещё не полностью сохранён в другой программе;\n"
+        "• файл удалён, переименован или перемещён;\n"
+        "• файл повреждён и не читается как .docx.\n\n"
+        "Проверьте, что файл существует, закрыт во всех программах "
+        "и попробуйте ещё раз."
+    )
+
     def __init__(self) -> None:
-        # Пока без состояния, оставляем на будущее.
         pass
+
+    def _open_docx_document(self, file_path: Path) -> Document:
+        """
+        Безопасное открытие .docx с единым человекочитаемым текстом ошибки.
+        """
+        try:
+            return Document(str(file_path))
+        except Exception as e:
+            logging.exception("Ошибка открытия .docx файла: %s", e)
+            raise ValueError(self.DOCX_OPEN_ERROR_MESSAGE)
 
     def _process_docx_with_mapping_and_save(
         self,
@@ -139,19 +158,7 @@ class FileProcessor:
                     for p in cell.paragraphs:
                         replace_in_paragraph(p, mapping)
 
-        try:
-            doc = Document(str(file_path))
-        except Exception as e:
-            user_msg = (
-                "Не удалось открыть файл как документ Word.\n\n"
-                "Возможные причины:\n"
-                "• файл открыт и ещё не полностью сохранён в другой программе;\n"
-                "• файл удалён, переименован или перемещён;\n"
-                "• файл повреждён и не читается как .docx.\n\n"
-                "Проверьте, что файл существует, закрыт во всех программах "
-                "и попробуйте ещё раз."
-            )
-            raise ValueError(user_msg)
+        doc = self._open_docx_document(file_path)
 
         # Основной текст
         for p in doc.paragraphs:
@@ -338,10 +345,7 @@ class FileProcessor:
 
             return "\n\n".join(chunks)
 
-        try:
-            doc = Document(str(file_path))
-        except Exception as e:
-            raise ValueError(f"Ошибка чтения .docx файла: {e}")
+        doc = self._open_docx_document(file_path)
 
         # тут replacements уже вида ("[ЗАМЕНА001]", "Иванов")
         mapping = replacements
@@ -369,10 +373,7 @@ class FileProcessor:
     def process_docx_file_deanonymize(
         self, file_path: Path, replacements: List[Tuple[str, str]]
     ) -> str:
-        try:
-            return self.process_docx_file(file_path, replacements, anonymize=False)
-        except Exception as e:
-            raise ValueError(f"Ошибка деанонимизации .docx файла: {e}")
+        return self.process_docx_file(file_path, replacements, anonymize=False)
 
     def process_doc_file_deanonymize(
         self, file_path: Path, replacements: List[Tuple[str, str]]

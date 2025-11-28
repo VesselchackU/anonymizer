@@ -365,9 +365,10 @@ class AnonymizerApp:
                 self.root.after(0, lambda: on_success(result))
             except Exception as e:
                 logging.exception("Ошибка фоновой операции")
+                err = str(e)
                 self.root.after(
                     0,
-                    lambda: messagebox.showerror(error_title, str(e)),
+                    lambda: messagebox.showerror(error_title, err),
                 )
             finally:
                 self.root.after(0, lambda: self.set_busy(False))
