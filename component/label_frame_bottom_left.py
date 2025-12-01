@@ -1,6 +1,13 @@
 import tkinter as tk
 from tkinter import ttk
 
+from component.button import (
+    AnonFileButton,
+    DeanonClipboardButton,
+    DeanonFileButton,
+    DeanonToFileButton,
+)
+
 
 class LabelFrameBottomLeft(ttk.LabelFrame):
     def __init__(
@@ -16,31 +23,30 @@ class LabelFrameBottomLeft(ttk.LabelFrame):
         self.grid(row=1, column=0, sticky="nsew")
 
         # Кнопка Анонимизировать файл
-        self.btn_anon = ttk.Button(
-            self, text="Анонимизировать файл", command=anonymize_func
-        )
-        self.btn_anon.pack(fill=tk.X, pady=2)
+        self.btn_anon = AnonFileButton(self, command=anonymize_func)
+        # self.btn_anon.pack(fill=tk.X, pady=2)
+        self.btn_anon.grid(row=0, column=0, sticky="nsew")
 
-        # Кнопка Деанонимизировать из файла
-        self.btn_deanon_file = ttk.Button(
+        # Кнопка Деанонимизировать файл
+        self.btn_deanon_file = DeanonFileButton(
             self,
-            text="Деанонимизировать из файла",
             command=deanonymize_func,
         )
-        self.btn_deanon_file.pack(fill=tk.X, pady=2)
+        # self.btn_deanon_file.pack(fill=tk.X, pady=2)
+        self.btn_deanon_file.grid(row=0, column=1, sticky="nsew")
 
-        # Кнопка: деанонимизировать в файл
-        self.btn_deanon_to_file = ttk.Button(
+        # Кнопка Деанонимизировать в файл
+        self.btn_deanon_to_file = DeanonToFileButton(
             self,
-            text="Деанонимизировать в файл",
             command=deanonymize_to_file_func,
         )
-        self.btn_deanon_to_file.pack(fill=tk.X, pady=2)
+        # self.btn_deanon_to_file.pack(fill=tk.X, pady=2)
+        self.btn_deanon_to_file.grid(row=1, column=0, sticky="nsew")
 
         # Кнопка Деанонимизировать из буфера
-        self.btn_deanon_clipboard = ttk.Button(
+        self.btn_deanon_clipboard = DeanonClipboardButton(
             self,
-            text="Деанонимизировать из буфера",
             command=deanonymize_from_clipboard_func,
         )
-        self.btn_deanon_clipboard.pack(fill=tk.X, pady=2)
+        # self.btn_deanon_clipboard.pack(fill=tk.X, pady=2)
+        self.btn_deanon_clipboard.grid(row=1, column=1, sticky="nsew")

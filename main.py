@@ -36,9 +36,31 @@ class AnonymizerApp:
         self.file_processor = FileProcessor()
         self.service = AnonymizationService(self.store, self.file_processor)
 
+        self.set_window_icon()
+
         self.setup_gui()
         self.center_or_restore_window()
         self.bind_events()
+
+    def set_window_icon(self) -> None:
+        """Устанавливает иконку окна приложения, если файл найден."""
+        icons_dir = Path(__file__).parent / "icons"
+        icon_path = icons_dir / "icon_app_64.png"
+
+        if not icon_path.exists():
+            return
+
+        try:
+            icon_image = tk.PhotoImage(file=str(icon_path))
+        except Exception as e:  # noqa: BLE001
+            logging.warning("Не удалось загрузить иконку окна %s: %s", icon_path, e)
+            return
+
+        # iconphoto работает кроссплатформенно
+        self.root.iconphoto(True, icon_image)
+
+        # держим ссылку, чтобы картинку не съел GC
+        self._window_icon_ref = icon_image
 
     @staticmethod
     def setup_logging():

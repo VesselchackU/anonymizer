@@ -1,6 +1,8 @@
 import tkinter as tk
 from tkinter import ttk
 
+from component.button import DeletePairButton
+
 
 class LabelFrameRight(ttk.LabelFrame):
     """
@@ -40,5 +42,5 @@ class LabelFrameRight(ttk.LabelFrame):
         self.deanon_val_entry.pack(fill=tk.X, pady=(0, 5))
 
         # Кнопка удаления
-        self.btn_del_pair = ttk.Button(self, text="Удалить", command=delete_command)
+        self.btn_del_pair = DeletePairButton(self, command=delete_command)
         self.btn_del_pair.pack(anchor="e")
