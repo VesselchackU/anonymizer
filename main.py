@@ -3,7 +3,7 @@ import threading
 import tkinter as tk
 from pathlib import Path
 from tkinter import filedialog, messagebox, ttk
-from typing import Callable, List, Optional, Tuple
+from typing import Callable, Iterable, List, Optional, Tuple
 
 import pyperclip
 
@@ -225,12 +225,34 @@ class AnonymizerApp:
     def get_deanonymization_order(self) -> List[Tuple[str, str]]:
         return self.store.get_deanonymization_order()
 
-    def load_filename(self) -> str:
+    def load_filename(
+        self,
+        filetypes: Iterable[tuple[str, str | list[str] | tuple[str, ...]]]
+        | None = None,
+    ) -> str:
+        """
+        Открывает диалог выбора файла для загрузки и возвращает путь к выбранному файлу.
+
+        При успешном выборе обновляет сохранённую директорию последнего открытия
+        в конфигурации приложения (app_config.last_open_dir);
+
+        @param filetypes: список кортежей, описывающих допустимые типы файлов
+            в формате (описание, шаблон), где шаблон может быть строкой, списком
+            или кортежем расширений (например: '*.txt' или ['*.doc', '*.docx']);
+            если None или не задан, используется список по умолчанию:
+            - ('Поддерживаемые файлы', ['*.txt', '*.doc', '*.docx']),
+            - ('Все файлы', '*.*');
+        @return: полный путь к выбранному файлу в виде строки; пустая строка,
+            если диалог был отменён;
+        @note: при выборе файла автоматически обновляется
+            self.app_config.last_open_dir;
+        """
         load_dir = self.app_config.last_open_dir
 
         filename = filedialog.askopenfilename(
             initialdir=str(load_dir),
-            filetypes=[
+            filetypes=filetypes
+            or [
                 ("Поддерживаемые файлы", ["*.txt", "*.doc", "*.docx"]),
                 ("Все файлы", "*.*"),
             ],
