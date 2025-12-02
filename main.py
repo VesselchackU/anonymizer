@@ -1,15 +1,18 @@
 import logging
 import threading
 import tkinter as tk
+import webbrowser
 from pathlib import Path
 from tkinter import filedialog, messagebox, ttk
-from typing import Callable, Iterable, List, Optional, Tuple
+from typing import Callable, Iterable, List, Optional, Tuple, reveal_type
 
 import pyperclip
 
+from component.label import LinkLabel
 from component.label_frame_bottom_left import LabelFrameBottomLeft
 from component.label_frame_right import LabelFrameRight
 from component.label_frame_top_left import LabelFrameTopLeft
+from component.main_menu import MainMenu
 from config import AppConfig, settings
 from core import AnonymizationService, FileProcessor, PseudonymStore
 
@@ -18,6 +21,8 @@ class AnonymizerApp:
     frame1: LabelFrameTopLeft
     frame2: LabelFrameBottomLeft
     frame3: LabelFrameRight
+    main_menu: MainMenu
+    _about_icon_ref: tk.PhotoImage
 
     def __init__(self, root) -> None:
         self.root = root
@@ -26,7 +31,7 @@ class AnonymizerApp:
 
         self.setup_logging()
         self._window_icon_ref: tk.PhotoImage | None = self.set_window_icon()
-        self.app_config = AppConfig(AppConfig.default_path())
+        self.app_config: AppConfig = AppConfig(AppConfig.default_path())
 
         self.store = PseudonymStore(self.get_pseudos_path())
         self.store.load()
@@ -40,6 +45,7 @@ class AnonymizerApp:
         self.set_window_icon()
 
         self.setup_gui()
+        self.setup_menu()
         self.center_or_restore_window()
         self.bind_events()
 
@@ -73,8 +79,17 @@ class AnonymizerApp:
             ],
         )
 
-    @staticmethod
-    def get_pseudos_path() -> Path:
+    def get_pseudos_path(self) -> Path:
+        """Возвращает путь к текущему файлу псевдонимов;
+        @return: объект Path с путём к файлу pseudos.json;
+        @note: приоритет имеет путь из AppConfig, затем из настроек
+        окружения, затем каталог модуля;
+        """
+        reveal_type(self.app_config)
+        cfg_path = self.app_config.pseudos_file
+        if cfg_path is not None:
+            return cfg_path
+
         if settings.pseudos_list_dir:
             return Path(settings.pseudos_list_dir) / "pseudos.json"
         return Path(__file__).parent / "pseudos.json"
@@ -101,6 +116,24 @@ class AnonymizerApp:
         self.setup_frame1(left_frame)
         self.setup_frame2(left_frame)
         self.setup_frame3(main_frame)
+
+    def setup_menu(self) -> None:
+        """Создаёт и привязывает главное меню приложения;
+        Пункты меню «Файл» дублируют функциональность
+        соответствующих кнопок;
+        """
+        self.main_menu = MainMenu(
+            self.root,
+            on_anonymize_file=self.anonymize_file,
+            on_deanon_file_to_file=self.deanonymize_file_to_file,
+            on_deanon_file_to_clipboard=self.deanonymize_file,
+            on_deanon_clipboard=self.deanonymize_clipboard,
+            on_new_pseudos_file=self.new_pseudos_file,
+            on_open_pseudos_file=self.open_pseudos_file,
+            on_save_pseudos_file_as=self.save_pseudos_file_as,
+            on_show_about=self.show_about_dialog,
+            on_open_help=self.open_user_guide,
+        )
 
     def setup_frame1(self, parent):
         self.frame1 = LabelFrameTopLeft(parent, add_pair_func=self.add_pair)
@@ -224,6 +257,207 @@ class AnonymizerApp:
 
     def get_deanonymization_order(self) -> List[Tuple[str, str]]:
         return self.store.get_deanonymization_order()
+
+    def get_pseudos_initial_dir(self) -> Path:
+        """Возвращает каталог по умолчанию для диалогов файлов псевдонимов;
+        @return: объект Path с директорией по умолчанию;
+        """
+        cfg_path = self.app_config.pseudos_file
+        if cfg_path is not None and cfg_path.parent.exists():
+            return cfg_path.parent
+
+        if settings.pseudos_list_dir:
+            env_dir = Path(settings.pseudos_list_dir)
+            if env_dir.exists():
+                return env_dir
+
+        return Path(__file__).parent
+
+    def _activate_pseudos_file(self, path: Path) -> None:
+        """Переключает приложение на указанный файл псевдонимов;
+        @param path: путь к JSON-файлу псевдонимов;
+        """
+        self.store.path = path
+        # синхронизируем ссылки на словари
+        self.anon_dict = self.store.anon_dict
+        self.deanon_dict = self.store.deanon_dict
+        self.app_config.pseudos_file = path
+        self.update_anon_list()
+        self.frame1.entry_anon.focus()
+
+    def new_pseudos_file(self) -> None:
+        """Создаёт новый файл псевдонимов;
+        Показывает диалог сохранения *.json без варианта *.*;
+        При существующем файле спрашивает подтверждение на замену;
+        После создания переключает приложение на новый файл;
+        """
+        initial_dir = self.get_pseudos_initial_dir()
+        filename = filedialog.asksaveasfilename(
+            title="Новый файл псевдонимов",
+            defaultextension=".json",
+            filetypes=[("Файлы псевдонимов (*.json)", "*.json")],
+            initialdir=str(initial_dir),
+        )
+        if not filename:
+            return
+
+        path = Path(filename)
+
+        if path.exists():
+            if not messagebox.askyesno(
+                "Подтверждение",
+                f"Файл '{path.name}' уже существует.\nЗаменить его?",
+            ):
+                return
+
+        self.store.anon_dict.clear()
+        self.store.deanon_dict.clear()
+        self._activate_pseudos_file(path)
+        self.save_pseudos()
+
+    def open_pseudos_file(self) -> None:
+        """Открывает существующий файл псевдонимов *.json;
+        После открытия переключает приложение на этот файл;
+        """
+        initial_dir = self.get_pseudos_initial_dir()
+        filename = filedialog.askopenfilename(
+            title="Открыть файл псевдонимов",
+            filetypes=[("Файлы псевдонимов (*.json)", "*.json")],
+            initialdir=str(initial_dir),
+        )
+        if not filename:
+            return
+
+        path = Path(filename)
+        self.store.path = path
+        self.load_pseudos()
+        self._activate_pseudos_file(path)
+
+    def save_pseudos_file_as(self) -> None:
+        """Сохраняет текущий словарь псевдонимов в новый файл *.json;
+        При существующем файле спрашивает подтверждение на замену;
+        После сохранения переключает приложение на новый файл;
+        """
+        initial_dir = self.get_pseudos_initial_dir()
+        filename = filedialog.asksaveasfilename(
+            title="Сохранить файл псевдонимов как...",
+            defaultextension=".json",
+            filetypes=[("Файлы псевдонимов (*.json)", "*.json")],
+            initialdir=str(initial_dir),
+        )
+        if not filename:
+            return
+
+        path = Path(filename)
+
+        if path.exists():
+            if not messagebox.askyesno(
+                "Подтверждение",
+                f"Файл '{path.name}' уже существует.\nЗаменить его?",
+            ):
+                return
+
+        self._activate_pseudos_file(path)
+        self.save_pseudos()
+
+    def show_about_dialog(self) -> None:
+        """Открывает модальное окно «О программе...»;
+        Окно ~300x300, неизменяемое, с логотипом 64x64 и заглушкой текста;
+        """
+        about = tk.Toplevel(self.root)
+        about.title("О программе")
+        about.resizable(False, False)
+        about.transient(self.root)
+        about.grab_set()
+        about.geometry("300x350")
+
+        container = ttk.Frame(about, padding=10, borderwidth=2)
+        container.pack(fill=tk.BOTH, expand=True)
+
+        icon_path = Path(__file__).parent / "icons" / "icon_app_64.png"
+        if icon_path.exists():
+            try:
+                img = tk.PhotoImage(file=str(icon_path))
+                icon_label = ttk.Label(container, image=img)
+                self._about_icon_ref = img  # не даём GC всё сломать
+                icon_label.pack(pady=(0, 10))
+            except Exception as e:  # noqa: BLE001
+                logging.warning(
+                    "Не удалось загрузить иконку для окна 'О программе': %s",
+                    e,
+                )
+
+        about_text = (
+            "Анонимизатор текстов\n"
+            "версия: <1.0.001>\n\n"
+            "Программа для анонимизации и деанонимизации текстовых "
+            "документов и содержимого буфера обмена.\n\n"
+            "© Автор - Виктор Ушакевич\n\n"
+            "Код приложения можно посмотреть здесь:"
+        )
+
+        label = ttk.Label(
+            container,
+            text=about_text,
+            justify="center",
+            anchor="center",
+            wraplength=260,
+        )
+        label.pack(pady=(0, 10), anchor="center")
+
+        code_link_text = "https://github.com/VesselchackU/anonymizer"
+        code_link_label = LinkLabel(
+            container,
+            url=code_link_text,
+            justify="center",
+            anchor="center",
+            wraplength=260,
+        )
+        code_link_label.pack(fill=tk.BOTH, expand=True)
+
+        close_btn = ttk.Button(container, text="Закрыть", command=about.destroy)
+        close_btn.pack(pady=(10, 0))
+
+        self._center_child_window(about)
+
+    def _center_child_window(self, window: tk.Toplevel) -> None:
+        """Центрирует дочернее окно относительно основного окна;
+        @param window: окно Toplevel, которое нужно центрировать;
+        """
+        window.update_idletasks()
+        parent_x = self.root.winfo_x()
+        parent_y = self.root.winfo_y()
+        parent_w = self.root.winfo_width()
+        parent_h = self.root.winfo_height()
+
+        win_w = window.winfo_width()
+        win_h = window.winfo_height()
+
+        x = parent_x + (parent_w - win_w) // 2
+        y = parent_y + (parent_h - win_h) // 2
+        window.geometry(f"+{x}+{y}")
+
+    @staticmethod
+    def open_user_guide() -> None:
+        """Открывает руководство пользователя в браузере;
+        Использует файл index.html из каталога users_guideline;
+        """
+        guide_path = Path(__file__).parent / "users_guideline" / "index.html"
+        if not guide_path.exists():
+            messagebox.showerror(
+                "Ошибка",
+                f"Файл справки не найден:\n{guide_path}",
+            )
+            return
+
+        try:
+            webbrowser.open(guide_path.as_uri())
+        except Exception as e:  # noqa: BLE001
+            logging.exception("Ошибка открытия руководства пользователя")
+            messagebox.showerror(
+                "Ошибка",
+                f"Не удалось открыть руководство пользователя: {e}",
+            )
 
     def load_filename(
         self,

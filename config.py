@@ -39,32 +39,6 @@ class AppConfig:
         self.parser = configparser.ConfigParser()
         self._load()
 
-    @staticmethod
-    def default_path() -> Path:
-        # По сути логика из get_config_path
-        if settings.main_ini_dir:
-            return Path(settings.main_ini_dir) / "main.ini"
-        return Path(__file__).parent / "main.ini"
-
-    def _create_default(self) -> None:
-        self.parser["window"] = {"coord_x": "100", "coord_y": "100"}
-        self.parser["config"] = {
-            "load_dir": str(Path.cwd()),
-            "last_open_dir": str(Path.cwd()),
-        }
-        self.save()
-
-    def _load(self) -> None:
-        if not self.path.exists():
-            self._create_default()
-        self.parser.read(self.path, encoding="utf-8")
-
-    def save(self) -> None:
-        with open(self.path, "w", encoding="utf-8") as f:
-            self.parser.write(f)
-
-    # --- Окно ---
-
     @property
     def window_position(self) -> Optional[tuple[int, int]]:
         try:
@@ -96,3 +70,50 @@ class AppConfig:
             self.parser["config"] = {}
         self.parser.set("config", "last_open_dir", str(value))
         self.save()
+
+    @property
+    def pseudos_file(self) -> Optional[Path]:
+        """Возвращает путь к файлу псевдонимов;
+        @return: объект Path или None, если путь не задан;
+        """
+        path_str = self.parser.get("config", "pseudos_file", fallback="")
+        path_str = path_str.strip()
+        if not path_str:
+            return None
+        return Path(path_str)
+
+    @pseudos_file.setter
+    def pseudos_file(self, value: Path) -> None:
+        """Сохраняет путь к файлу псевдонимов в main.ini;
+        @param value: объект Path с путём к JSON-файлу псевдонимов;
+        """
+        if "config" not in self.parser:
+            self.parser["config"] = {}
+        self.parser.set("config", "pseudos_file", str(value))
+        self.save()
+
+    @staticmethod
+    def default_path() -> Path:
+        # По сути логика из get_config_path
+        if settings.main_ini_dir:
+            return Path(settings.main_ini_dir) / "main.ini"
+        return Path(__file__).parent / "main.ini"
+
+    def _create_default(self) -> None:
+        self.parser["window"] = {"coord_x": "100", "coord_y": "100"}
+        self.parser["config"] = {
+            "load_dir": str(Path.cwd()),
+            "last_open_dir": str(Path.cwd()),
+        }
+        self.save()
+
+    def _load(self) -> None:
+        if not self.path.exists():
+            self._create_default()
+        self.parser.read(self.path, encoding="utf-8")
+
+    # --- Окно ---
+
+    def save(self) -> None:
+        with open(self.path, "w", encoding="utf-8") as f:
+            self.parser.write(f)
