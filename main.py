@@ -104,7 +104,6 @@ class AnonymizerApp:
 
     def setup_frame1(self, parent):
         self.frame1 = LabelFrameTopLeft(parent, add_pair_func=self.add_pair)
-        logging.info(self.frame1.__dict__)
 
     def setup_frame2(self, parent):
         self.frame2 = LabelFrameBottomLeft(
