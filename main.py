@@ -186,7 +186,6 @@ class AnonymizerApp:
         self.update_anon_list()
 
         self.frame1.entry_anon.delete(0, tk.END)
-        self.frame1.entry_pseudonym.delete(0, tk.END)
         self.frame1.entry_anon.focus()
 
         for i, item in enumerate(self.frame3.listbox_anon.get(0, tk.END)):
