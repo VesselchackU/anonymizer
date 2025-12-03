@@ -27,4 +27,5 @@ class LinkLabel(ttk.Label):
     def _on_click(self, event=None):
         if self._command is None:
             webbrowser.open(self.url)
+            return
         self._command()
