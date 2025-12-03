@@ -4,7 +4,7 @@ import tkinter as tk
 import webbrowser
 from pathlib import Path
 from tkinter import filedialog, messagebox, ttk
-from typing import Callable, Iterable, List, Optional, Tuple, reveal_type
+from typing import Callable, Iterable, List, Optional, Tuple
 
 import pyperclip
 
@@ -41,8 +41,6 @@ class AnonymizerApp:
 
         self.file_processor = FileProcessor()
         self.service = AnonymizationService(self.store, self.file_processor)
-
-        self.set_window_icon()
 
         self.setup_gui()
         self.setup_menu()
@@ -85,7 +83,6 @@ class AnonymizerApp:
         @note: приоритет имеет путь из AppConfig, затем из настроек
         окружения, затем каталог модуля;
         """
-        reveal_type(self.app_config)
         cfg_path = self.app_config.pseudos_file
         if cfg_path is not None:
             return cfg_path
