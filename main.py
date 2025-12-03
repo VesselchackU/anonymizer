@@ -403,7 +403,7 @@ class AnonymizerApp:
             anchor="center",
             wraplength=260,
         )
-        label.pack(pady=(0, 10), anchor="center")
+        label.pack(fill=tk.BOTH, expand=True)
 
         code_link_text = "https://github.com/VesselchackU/anonymizer"
         code_link_label = LinkLabel(
@@ -414,6 +414,27 @@ class AnonymizerApp:
             wraplength=260,
         )
         code_link_label.pack(fill=tk.BOTH, expand=True)
+
+        label_tg = ttk.Label(
+            container,
+            text="Вопросы и пожелания:",
+            justify="center",
+            anchor="center",
+            wraplength=260,
+        )
+
+        tg_link_url = "https://t.me/VesselchackU"
+
+        label_tg_link = LinkLabel(
+            container,
+            url=tg_link_url,
+            text="Напишите мне в телеграм",
+            justify="center",
+            anchor="center",
+            wraplength=260,
+        )
+        label_tg.pack(fill=tk.BOTH, expand=True)
+        label_tg_link.pack(fill=tk.BOTH, expand=True)
 
         close_btn = ttk.Button(container, text="Закрыть", command=about.destroy)
         close_btn.pack(pady=(10, 0))
